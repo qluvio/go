@@ -2,6 +2,7 @@ package jsoniter
 
 import (
 	"fmt"
+	"github.com/modern-go/concurrent"
 	"github.com/modern-go/reflect2"
 	"reflect"
 	"sort"
@@ -35,12 +36,15 @@ func (structDescriptor *StructDescriptor) GetField(fieldName string) *Binding {
 
 // Binding describe how should we encode/decode the struct field
 type Binding struct {
-	levels    []int
-	Field     reflect2.StructField
-	FromNames []string
-	ToNames   []string
-	Encoder   ValEncoder
-	Decoder   ValDecoder
+	levels             []int
+	Field              reflect2.StructField
+	FromNames          []string
+	ToNames            []string
+	Encoder            ValEncoder
+	Decoder            ValDecoder
+	OmitBecausePrivate bool
+	OmitBecauseTag     bool
+	RenamedByTag       bool
 }
 
 // Extension the one for all SPI. Customize encoding/decoding by specifying alternate encoder/decoder.
@@ -240,6 +244,27 @@ func RegisterExtension(extension Extension) {
 	extensions = append(extensions, extension)
 }
 
+// Clear extensions. This will not affect any Encoders/Decoders that have already been used and cached, if you wish
+// to change how an already registered data type gets marshaled/unmarshaled you will need to alias and cast, e.g.:
+//
+func ClearExtensions() {
+	extensions = []Extension{}
+}
+
+// Clear cached encoders and decoders
+func ResetAll() {
+	ConfigDefault = Config{
+		EscapeHTML: true,
+	}.Froze()
+
+	ClearExtensions()
+	typeDecoders = map[string]ValDecoder{}
+	fieldDecoders = map[string]ValDecoder{}
+	typeEncoders = map[string]ValEncoder{}
+	fieldEncoders = map[string]ValEncoder{}
+	cfgCache = concurrent.NewMap()
+}
+
 func getTypeDecoderFromExtension(ctx *ctx, typ reflect2.Type) ValDecoder {
 	decoder := _getTypeDecoderFromExtension(ctx, typ)
 	if decoder != nil {
@@ -373,7 +398,7 @@ func describeStruct(ctx *ctx, typ reflect2.Type) *StructDescriptor {
 				}
 			}
 		}
-		fieldNames := calcFieldNames(field.Name(), tagParts[0], tag)
+		fieldNames, omitBecauseTag, omitBecausePrivate, renamedByTag := calcFieldNames(field.Name(), tagParts[0], tag)
 		fieldCacheKey := fmt.Sprintf("%s/%s", typ.String(), field.Name())
 		decoder := fieldDecoders[fieldCacheKey]
 		if decoder == nil {
@@ -384,11 +409,14 @@ func describeStruct(ctx *ctx, typ reflect2.Type) *StructDescriptor {
 			encoder = encoderOfType(ctx.append(field.Name()), field.Type())
 		}
 		binding := &Binding{
-			Field:     field,
-			FromNames: fieldNames,
-			ToNames:   fieldNames,
-			Decoder:   decoder,
-			Encoder:   encoder,
+			Field:              field,
+			FromNames:          fieldNames,
+			ToNames:            fieldNames,
+			Decoder:            decoder,
+			Encoder:            encoder,
+			OmitBecausePrivate: omitBecausePrivate,
+			OmitBecauseTag:     omitBecauseTag,
+			RenamedByTag:       renamedByTag,
 		}
 		binding.levels = []int{i}
 		bindings = append(bindings, binding)
@@ -462,10 +490,14 @@ func processTags(structDescriptor *StructDescriptor, cfg *frozenConfig) {
 	}
 }
 
-func calcFieldNames(originalFieldName string, tagProvidedFieldName string, wholeTag string) []string {
+func calcFieldNames(originalFieldName string, tagProvidedFieldName string, wholeTag string) ([]string, bool, bool, bool) {
+	omitBecauseTag := false
+	omitBecausePrivate := false
+	renamedByTag := false
+
 	// ignore?
 	if wholeTag == "-" {
-		return []string{}
+		omitBecauseTag = true
 	}
 	// rename?
 	var fieldNames []string
@@ -473,11 +505,12 @@ func calcFieldNames(originalFieldName string, tagProvidedFieldName string, whole
 		fieldNames = []string{originalFieldName}
 	} else {
 		fieldNames = []string{tagProvidedFieldName}
+		renamedByTag = true
 	}
 	// private?
 	isNotExported := unicode.IsLower(rune(originalFieldName[0]))
 	if isNotExported {
-		fieldNames = []string{}
+		omitBecausePrivate = true
 	}
-	return fieldNames
+	return fieldNames, omitBecauseTag, omitBecausePrivate, renamedByTag
 }

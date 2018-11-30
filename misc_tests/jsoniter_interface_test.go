@@ -2,7 +2,7 @@ package misc_tests
 
 import (
 	"encoding/json"
-	"github.com/json-iterator/go"
+	"github.com/qluvio/json-iterator"
 	"github.com/stretchr/testify/require"
 	"io"
 	"testing"

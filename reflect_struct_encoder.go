@@ -17,18 +17,20 @@ func encoderOfStruct(ctx *ctx, typ reflect2.Type) ValEncoder {
 	orderedBindings := []*bindingTo{}
 	structDescriptor := describeStruct(ctx, typ)
 	for _, binding := range structDescriptor.Fields {
-		for _, toName := range binding.ToNames {
-			new := &bindingTo{
-				binding: binding,
-				toName:  toName,
-			}
-			for _, old := range orderedBindings {
-				if old.toName != toName {
-					continue
+		if !binding.OmitBecausePrivate && !binding.OmitBecauseTag {
+			for _, toName := range binding.ToNames {
+				new := &bindingTo{
+					binding: binding,
+					toName:  toName,
 				}
-				old.ignored, new.ignored = resolveConflictBinding(ctx.frozenConfig, old.binding, new.binding)
+				for _, old := range orderedBindings {
+					if old.toName != toName {
+						continue
+					}
+					old.ignored, new.ignored = resolveConflictBinding(ctx.frozenConfig, old.binding, new.binding)
+				}
+				orderedBindings = append(orderedBindings, new)
 			}
-			orderedBindings = append(orderedBindings, new)
 		}
 	}
 	if len(orderedBindings) == 0 {

@@ -2,7 +2,7 @@ package test
 
 import (
 	"bytes"
-	"github.com/json-iterator/go"
+	"github.com/qluvio/json-iterator"
 	"github.com/stretchr/testify/require"
 	"strconv"
 	"testing"
